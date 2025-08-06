@@ -3,7 +3,7 @@ import streamlit as st
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Chroma
+from langchain_community.vectorstores import FAISS
 from langchain_groq import ChatGroq
 from langchain.chains import RetrievalQA
 import tempfile
@@ -64,18 +64,12 @@ if uploaded_file:
             splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
             docs = splitter.split_documents(documents)
         
-        # 2. Embedding and retrieval
+        # 2. Embedding and retrieval using FAISS (more cloud-friendly)
         with st.spinner("Creating embeddings..."):
             embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
             
-            # Use a temporary directory for ChromaDB in cloud environments
-            import tempfile
-            temp_dir = tempfile.mkdtemp()
-            vectorstore = Chroma.from_documents(
-                documents=docs, 
-                embedding=embeddings,
-                persist_directory=temp_dir
-            )
+            # Use FAISS instead of ChromaDB for better cloud compatibility
+            vectorstore = FAISS.from_documents(docs, embeddings)
         
         # 3. Connect to LLM (Groq Llama-3)
         with st.spinner("Setting up AI model..."):
