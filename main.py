@@ -7,9 +7,22 @@ from langchain.vectorstores import Chroma
 from langchain_groq import ChatGroq
 from langchain.chains import RetrievalQA
 
-# Load your Groq API key securely
-with open("groq_api.txt", "r") as f:
-    groq_api_key = f.read().strip()
+# Load your Groq API key securely - works for both local and cloud deployment
+def get_groq_api_key():
+    # First try environment variable (for cloud deployment)
+    api_key = os.getenv('GROQ_API_KEY')
+    if api_key:
+        return api_key
+    
+    # Fallback to local file (for local development)
+    try:
+        with open("groq_api.txt", "r") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        st.error("❌ Groq API key not found! Please set GROQ_API_KEY environment variable or create groq_api.txt file.")
+        st.stop()
+
+groq_api_key = get_groq_api_key()
 
 st.title("Chat with Your PDF (Groq RAG Chatbot)")
 
