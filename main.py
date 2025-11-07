@@ -52,13 +52,15 @@ if 'retriever' not in st.session_state:
     st.session_state.retriever = None
 if 'llm' not in st.session_state:
     st.session_state.llm = None
+if 'vectorstore' not in st.session_state:
+    st.session_state.vectorstore = None
 
 uploaded_file = st.file_uploader("Upload a PDF document", type=['pdf'])
 
 # Process PDF if uploaded and not already processed
 if uploaded_file:
     # Check if we need to process (new file or first time)
-    if st.session_state.retriever is None:
+    if st.session_state.vectorstore is None:
         try:
             # Save temp file for processing
             with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
@@ -90,6 +92,7 @@ if uploaded_file:
                 # Store in session state so we can reuse across questions
                 st.session_state.retriever = retriever
                 st.session_state.llm = llm
+                st.session_state.vectorstore = vectorstore
             
             st.success("✅ Document processed successfully! You can now ask questions.")
             
@@ -106,13 +109,13 @@ if uploaded_file:
         st.info("✅ Document already processed. You can ask questions below.")
 
 # User Q&A section
-if st.session_state.retriever is not None and st.session_state.llm is not None:
+if st.session_state.vectorstore is not None and st.session_state.llm is not None:
     question = st.text_input("Ask a question about your document:")
     if question:
         with st.spinner("Generating answer..."):
             try:
-                # Retrieve relevant documents
-                relevant_docs = st.session_state.retriever.get_relevant_documents(question)
+                # Retrieve relevant documents using vectorstore similarity search (most reliable method)
+                relevant_docs = st.session_state.vectorstore.similarity_search(question, k=4)
                 
                 # Combine document contents into context
                 context = "\n\n".join([doc.page_content for doc in relevant_docs])
