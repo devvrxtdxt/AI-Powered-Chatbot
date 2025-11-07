@@ -5,9 +5,6 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_groq import ChatGroq
-from langchain.chains import create_retrieval_chain
-from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain_core.prompts import ChatPromptTemplate
 import tempfile
 
 # Load your Groq API key securely - works for both local and cloud deployment
@@ -50,72 +47,95 @@ groq_api_key = get_groq_api_key()
 
 st.title("Chat with Your PDF (Groq RAG Chatbot)")
 
+# Initialize session state
+if 'retriever' not in st.session_state:
+    st.session_state.retriever = None
+if 'llm' not in st.session_state:
+    st.session_state.llm = None
+
 uploaded_file = st.file_uploader("Upload a PDF document", type=['pdf'])
 
+# Process PDF if uploaded and not already processed
 if uploaded_file:
-    try:
-        # Save temp file for processing
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
-            tmp_file.write(uploaded_file.getvalue())
-            temp_pdf_path = tmp_file.name
-        
-        # 1. Load and split PDF into chunks
-        with st.spinner("Loading and processing PDF..."):
-            loader = PyPDFLoader(temp_pdf_path)
-            documents = loader.load()
-            splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-            docs = splitter.split_documents(documents)
-        
-        # 2. Embedding and retrieval using FAISS (more cloud-friendly)
-        with st.spinner("Creating embeddings..."):
-            embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-            
-            # Use FAISS instead of ChromaDB for better cloud compatibility
-            vectorstore = FAISS.from_documents(docs, embeddings)
-        
-        # 3. Connect to LLM (Groq Llama-3)
-        with st.spinner("Setting up AI model..."):
-            llm = ChatGroq(model="openai/gpt-oss-120b", api_key=groq_api_key)
-            
-            # Create prompt template
-            system_prompt = (
-                "Use the given context to answer the question. "
-                "If you don't know the answer based on the context, say you don't know. "
-                "Use three sentences maximum and keep the answer concise.\n\n"
-                "Context: {context}"
-            )
-            
-            prompt = ChatPromptTemplate.from_messages(
-                [
-                    ("system", system_prompt),
-                    ("human", "{input}"),
-                ]
-            )
-            
-            # Create the question-answering chain using the new LangChain API
-            retriever = vectorstore.as_retriever()
-            question_answer_chain = create_stuff_documents_chain(llm, prompt)
-            qa_chain = create_retrieval_chain(retriever, question_answer_chain)
-        
-        st.success("✅ Document processed successfully! You can now ask questions.")
-        
-        # 4. User Q&A
-        question = st.text_input("Ask a question about your document:")
-        if question:
-            with st.spinner("Generating answer..."):
-                try:
-                    answer = qa_chain.invoke({"input": question})
-                    st.write("**Answer:**")
-                    st.write(answer["answer"])
-                except Exception as e:
-                    st.error(f"Error generating answer: {str(e)}")
-        
-        # Clean up temporary files
+    # Check if we need to process (new file or first time)
+    if st.session_state.retriever is None:
         try:
-            os.unlink(temp_pdf_path)
-        except:
-            pass
+            # Save temp file for processing
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
+                tmp_file.write(uploaded_file.getvalue())
+                temp_pdf_path = tmp_file.name
             
-    except Exception as e:
-        st.error(f"❌ Error processing document: {str(e)}")
-        st.error("Please try uploading a different PDF file.")
+            # 1. Load and split PDF into chunks
+            with st.spinner("Loading and processing PDF..."):
+                loader = PyPDFLoader(temp_pdf_path)
+                documents = loader.load()
+                splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+                docs = splitter.split_documents(documents)
+            
+            # 2. Embedding and retrieval using FAISS (more cloud-friendly)
+            with st.spinner("Creating embeddings..."):
+                embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+                
+                # Use FAISS instead of ChromaDB for better cloud compatibility
+                vectorstore = FAISS.from_documents(docs, embeddings)
+            
+            # 3. Setup retriever and LLM
+            with st.spinner("Setting up AI model..."):
+                # Initialize the LLM
+                llm = ChatGroq(model="openai/gpt-oss-120b", api_key=groq_api_key, temperature=0)
+                
+                # Create retriever for document search
+                retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
+                
+                # Store in session state so we can reuse across questions
+                st.session_state.retriever = retriever
+                st.session_state.llm = llm
+            
+            st.success("✅ Document processed successfully! You can now ask questions.")
+            
+            # Clean up temporary files
+            try:
+                os.unlink(temp_pdf_path)
+            except:
+                pass
+                
+        except Exception as e:
+            st.error(f"❌ Error processing document: {str(e)}")
+            st.error("Please try uploading a different PDF file.")
+    else:
+        st.info("✅ Document already processed. You can ask questions below.")
+
+# User Q&A section
+if st.session_state.retriever is not None and st.session_state.llm is not None:
+    question = st.text_input("Ask a question about your document:")
+    if question:
+        with st.spinner("Generating answer..."):
+            try:
+                # Retrieve relevant documents
+                relevant_docs = st.session_state.retriever.get_relevant_documents(question)
+                
+                # Combine document contents into context
+                context = "\n\n".join([doc.page_content for doc in relevant_docs])
+                
+                # Create prompt with context
+                prompt = f"""Use the following context from the document to answer the question.
+If you don't know the answer based on the context, say "I don't know" or "The context doesn't provide enough information."
+Keep your answer concise and based only on the provided context.
+
+Context:
+{context}
+
+Question: {question}
+
+Answer:"""
+                
+                # Get answer from LLM
+                response = st.session_state.llm.invoke(prompt)
+                answer = response.content if hasattr(response, 'content') else str(response)
+                
+                st.write("**Answer:**")
+                st.write(answer)
+            except Exception as e:
+                st.error(f"Error generating answer: {str(e)}")
+elif uploaded_file is None:
+    st.info("👆 Please upload a PDF document to get started.")
