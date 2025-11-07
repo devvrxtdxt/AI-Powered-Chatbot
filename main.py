@@ -5,7 +5,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_groq import ChatGroq
-from langchain.chains import RetrievalQA
+from langchain.chains import create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_core.prompts import ChatPromptTemplate
 import tempfile
 
 # Load your Groq API key securely - works for both local and cloud deployment
@@ -74,11 +76,26 @@ if uploaded_file:
         # 3. Connect to LLM (Groq Llama-3)
         with st.spinner("Setting up AI model..."):
             llm = ChatGroq(model="openai/gpt-oss-120b", api_key=groq_api_key)
-            qa_chain = RetrievalQA.from_chain_type(
-                llm=llm,
-                chain_type="stuff",
-                retriever=vectorstore.as_retriever()
+            
+            # Create prompt template
+            system_prompt = (
+                "Use the given context to answer the question. "
+                "If you don't know the answer based on the context, say you don't know. "
+                "Use three sentences maximum and keep the answer concise.\n\n"
+                "Context: {context}"
             )
+            
+            prompt = ChatPromptTemplate.from_messages(
+                [
+                    ("system", system_prompt),
+                    ("human", "{input}"),
+                ]
+            )
+            
+            # Create the question-answering chain using the new LangChain API
+            retriever = vectorstore.as_retriever()
+            question_answer_chain = create_stuff_documents_chain(llm, prompt)
+            qa_chain = create_retrieval_chain(retriever, question_answer_chain)
         
         st.success("✅ Document processed successfully! You can now ask questions.")
         
@@ -87,9 +104,9 @@ if uploaded_file:
         if question:
             with st.spinner("Generating answer..."):
                 try:
-                    answer = qa_chain.invoke({"query": question})
+                    answer = qa_chain.invoke({"input": question})
                     st.write("**Answer:**")
-                    st.write(answer["result"])
+                    st.write(answer["answer"])
                 except Exception as e:
                     st.error(f"Error generating answer: {str(e)}")
         
