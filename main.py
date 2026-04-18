@@ -4,17 +4,17 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain_groq import ChatGroq
+from langchain_google_genai import ChatGoogleGenerativeAI
 import tempfile
 
 st.set_page_config(page_title="PDF Chatbot", page_icon="📖", layout="wide")
 
 
-def get_groq_api_key():
-    key = os.getenv('GROQ_API_KEY')
+def get_gemini_api_key():
+    key = os.getenv('GOOGLE_API_KEY')
     if key:
         return key
-    for path in ["groq_api.txt", "./groq_api.txt", os.path.join(os.getcwd(), "groq_api.txt")]:
+    for path in ["gemini_api.txt", "./gemini_api.txt", os.path.join(os.getcwd(), "gemini_api.txt")]:
         try:
             with open(path) as f:
                 k = f.read().strip()
@@ -22,11 +22,11 @@ def get_groq_api_key():
                     return k
         except FileNotFoundError:
             continue
-    st.error("Groq API key not found. Set GROQ_API_KEY or create groq_api.txt.")
+    st.error("Gemini API key not found. Set GOOGLE_API_KEY or create gemini_api.txt.")
     st.stop()
 
 
-groq_api_key = get_groq_api_key()
+gemini_api_key = get_gemini_api_key()
 
 for k, default in [('vectorstore', None), ('llm', None), ('chat_history', []), ('input_key', 0)]:
     if k not in st.session_state:
@@ -337,7 +337,7 @@ else:
                     vs = FAISS.from_documents(
                         docs, HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
                     )
-                    llm = ChatGroq(model="openai/gpt-oss-120b", api_key=groq_api_key, temperature=0)
+                    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=gemini_api_key, temperature=0)
 
                     st.session_state.vectorstore = vs
                     st.session_state.llm = llm
